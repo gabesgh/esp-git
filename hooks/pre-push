@@ -1,0 +1,43 @@
+#!/bin/sh
+# Nudges esp-git so the display flashes when a push actually goes out.
+#
+# Rules this hook lives by: it must never be the reason a push fails. Short
+# timeout, output swallowed, backgrounded, always exits 0.
+#
+# Install for one repo:
+#   ln -sf ../../hooks/pre-push .git/hooks/pre-push
+#
+# Install for every repo on the machine:
+#   git config --global core.hooksPath ~/.githooks
+#   cp hooks/pre-push ~/.githooks/pre-push && chmod +x ~/.githooks/pre-push
+#
+# Config, both optional:
+#   ESP_GIT_URL         defaults to the value baked in below
+#   ESP_GIT_TOKEN_FILE  defaults to ~/.config/esp-git/token
+
+# Re-entry guard. When this is symlinked into .git/hooks the chain below can
+# exec straight back into this same file, and comparing paths does not catch it
+# because the symlink and its target are different strings. Ask me how I know.
+[ -n "$ESP_GIT_HOOK_RAN" ] && exit 0
+ESP_GIT_HOOK_RAN=1
+export ESP_GIT_HOOK_RAN
+
+URL_FILE="${ESP_GIT_URL_FILE:-$HOME/.config/esp-git/url}"
+PULSE_URL="${ESP_GIT_URL:-$( [ -r "$URL_FILE" ] && cat "$URL_FILE" || echo http://localhost:3737/api/pulse )}"
+TOKEN_FILE="${ESP_GIT_TOKEN_FILE:-$HOME/.config/esp-git/token}"
+
+if [ -r "$TOKEN_FILE" ]; then
+    curl -s -m 3 -o /dev/null \
+         -X POST \
+         -H "x-device-token: $(cat "$TOKEN_FILE")" \
+         -H "x-github-event: push" \
+         "$PULSE_URL" >/dev/null 2>&1 &
+fi
+
+# core.hooksPath *replaces* the per-repo hooks directory rather than adding to
+# it, so a repo's own pre-push would silently stop running. Chain to it. The
+# guard at the top is what stops this recursing when we are that same hook.
+REPO_HOOK="$(git rev-parse --git-path hooks 2>/dev/null)/pre-push"
+[ -x "$REPO_HOOK" ] && exec "$REPO_HOOK" "$@"
+
+exit 0

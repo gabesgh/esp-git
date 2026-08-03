@@ -1,0 +1,36 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# private data-source adapters. the public build ships github only.
+server/lib/adapters/private/
+
+# firmware config carries wifi creds + device token
+firmware/include/config.h
+
+# Build output stays out, with one deliberate exception: server/public/firmware
+# holds the images people download and flash. They are committed so that a fresh
+# clone can both flash a board and serve over-the-air updates from its own
+# deployment. release.sh refuses to put anything there that has credentials in it.
+*.bin
+!server/public/firmware/*.bin
+
+node_modules/
+.next/
+.vercel/
+out/
+dist/
+
+.pio/
+.pioenvs/
+.clang_complete
+.gcc-flags.json
+
+.DS_Store
+*.log
+
+# OTA payload is a build artifact, staged not committed
+
+# typescript incremental build cache
+*.tsbuildinfo
