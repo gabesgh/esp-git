@@ -1,8 +1,8 @@
 import { deviceAuthorised } from '@/lib/auth'
 import { pack, resolveAdapters, type Snapshot } from '@/lib/adapters'
 
-//60s is a deliberate floor. the device polls far more often than this and the
-//contribution graph simply does not move fast enough to justify hammering github.
+//the device polls far more often than this, and the contribution graph does not
+//move fast enough to justify passing every one of those through to github.
 export const revalidate = 30
 
 let cached: { at: number; body: unknown } | null = null

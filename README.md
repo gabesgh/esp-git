@@ -47,10 +47,11 @@ coding agent and let it do the work, and it reads fine as a human guide too.
 
 ### Flashing the board
 
-Prebuilt images are committed in [`server/public/firmware/`](firmware/bin). No compiler, no
-toolchain, nothing to edit. They are built from a blank config, so they contain
-nobody's wifi, nobody's server and nobody's token, and the release script refuses
-to publish an image that does.
+Prebuilt images are committed in
+[`server/public/firmware/`](server/public/firmware). No compiler, no toolchain,
+nothing to edit. They are built from a blank config, so they contain nobody's
+wifi, nobody's server and nobody's token, and the release script refuses to
+publish an image that does.
 
 **Hand this section to a coding agent and it will do the whole thing.** Doing it
 yourself:

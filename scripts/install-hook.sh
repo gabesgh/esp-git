@@ -13,7 +13,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CFG="$HOME/.config/esp-git"
 
 read -r -p "server url [$( [ -r "$CFG/url" ] && sed 's|/api/pulse||' "$CFG/url" )]: " URL
-read -r -p "device token: " TOKEN
+read -rs -p "device token: " TOKEN; echo
 
 mkdir -p "$CFG"
 if [ -n "$URL" ]; then
@@ -45,11 +45,11 @@ fi
 echo
 echo "testing it..."
 BEFORE=$(curl -s -m 10 -H "x-device-token: $(cat "$CFG/token")" \
-         "$(sed 's|/api/pulse|/api/pulse|' "$CFG/url")" | sed -E 's/.*"seq":([0-9]+).*/\1/')
-GITHUB_PULSE_HOOK_RAN= "$ROOT/hooks/pre-push" </dev/null || true
+         "$(cat "$CFG/url")" | sed -E 's/.*"seq":([0-9]+).*/\1/')
+ESP_GIT_HOOK_RAN= "$ROOT/hooks/pre-push" </dev/null || true
 sleep 3
 AFTER=$(curl -s -m 10 -H "x-device-token: $(cat "$CFG/token")" \
-        "$(sed 's|/api/pulse|/api/pulse|' "$CFG/url")" | sed -E 's/.*"seq":([0-9]+).*/\1/')
+        "$(cat "$CFG/url")" | sed -E 's/.*"seq":([0-9]+).*/\1/')
 
 if [ "$AFTER" -gt "$BEFORE" ] 2>/dev/null; then
     echo "  counter went $BEFORE -> $AFTER. the display will flash on your next push."

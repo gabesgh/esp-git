@@ -22,7 +22,7 @@
 #include "provision.h"
 
 // bumped by scripts/release.sh; the device compares this against the manifest
-#define FW_VERSION "1.0.0"
+#define FW_VERSION "1.0.1"
 
 TFT_eSPI tft;
 SPIClass touchBus(VSPI);
@@ -90,6 +90,23 @@ static uint32_t lastPulse = 0;
 static uint32_t lastOta = 0;
 static long     seenSeq = -1;
 static bool     dirty = true;
+
+// Every draw starts by clearing the screen to black, so a repaint is visible as
+// a flash. Fetching does not mean anything changed: the contribution graph moves
+// a few times a day and the poll runs every thirty seconds. Repainting on every
+// fetch made the display blink at anyone sitting near it, for nothing.
+static uint32_t renderedHash = 0;
+static bool     contentChanged = false;   // set by fetchStats, read by loop
+
+static uint32_t fnv1a(const char *s, uint32_t h = 2166136261u) {
+    while (*s) { h ^= (uint8_t)*s++; h *= 16777619u; }
+    return h;
+}
+static uint32_t fnv1aNum(long v, uint32_t h) {
+    char b[24];
+    snprintf(b, sizeof(b), "%ld", v);
+    return fnv1a(b, h);
+}
 static char     status[48] = "booting";
 
 // GitHub's dark-theme ramp. reads far better than the light one on a lit panel.
@@ -241,6 +258,19 @@ static bool fetchStats() {
     bool grew = (prevTotal >= 0 && data.total > prevTotal);
     prevTotal = data.total;
 
+    // Everything the screens actually draw, and nothing else. The response also
+    // carries a timestamp, which changes every time and would defeat the point.
+    uint32_t h = fnv1a(data.cal);
+    h = fnv1aNum(data.total, h);
+    h = fnv1a(data.from, h);
+    h = fnv1a(data.to, h);
+    for (int i = 0; i < data.nSeries; i++) { h = fnv1a(data.labels[i], h); h = fnv1aNum(data.values[i], h); }
+    for (int i = 0; i < data.nStats; i++)  { h = fnv1a(data.stats[i].label, h); h = fnv1a(data.stats[i].value, h); }
+    for (int i = 0; i < data.nNotes; i++)  { h = fnv1a(data.notes[i].icon, h);  h = fnv1a(data.notes[i].text, h); }
+
+    contentChanged = (h != renderedHash);
+    renderedHash = h;
+
     data.valid = true;
     snprintf(status, sizeof(status), "ok  heap %ukB", ESP.getFreeHeap() / 1024);
 
@@ -248,8 +278,9 @@ static bool fetchStats() {
         Serial.printf("[total] %ld contributions, up from before\n", data.total);
         celebrate("contribution total rose");
     }
-    Serial.printf("[stats] %d days, total %ld, %d series, %d stats, heap %u\n",
-                  data.calLen, data.total, data.nSeries, data.nStats, ESP.getFreeHeap());
+    Serial.printf("[stats] %d days, total %ld, %d series, %d stats, heap %u%s\n",
+                  data.calLen, data.total, data.nSeries, data.nStats, ESP.getFreeHeap(),
+                  contentChanged ? ", changed" : ", no change");
     return true;
 }
 
@@ -1693,7 +1724,8 @@ void loop() {
     if (WiFi.isConnected()) {
         if (lastStats == 0 || now - lastStats >= STATS_INTERVAL_MS) {
             lastStats = now ? now : 1;
-            if (fetchStats()) dirty = true;
+            // fetching is not a reason to repaint. changing is.
+            if (fetchStats() && contentChanged) dirty = true;
         }
 
         if (now - lastOta >= OTA_INTERVAL_MS) {

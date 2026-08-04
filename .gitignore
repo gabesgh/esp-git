@@ -3,8 +3,11 @@
 .env.*
 !.env.example
 
-# private data-source adapters. the public build ships github only.
-server/lib/adapters/private/
+# private data-source adapters. the public build ships github only. the folder
+# itself is tracked via example.ts so a fresh clone can resolve the dynamic import
+# in adapters/index.ts without the bundler warning about a missing path.
+server/lib/adapters/private/*
+!server/lib/adapters/private/example.ts
 
 # firmware config carries wifi creds + device token
 firmware/include/config.h

@@ -1,23 +1,22 @@
 #!/bin/bash
-# Build both images and stage them.
+# Build the distributable image and stage it.
 #
 #   ./scripts/release.sh 1.0.3
 #   ./scripts/release.sh 1.0.3 "what changed and why"
 #
-# A release is a commit. It bumps the version, builds both images, refuses if the
-# published one carries a credential, commits and tags. Source and binary cannot
+# A release is a commit. It bumps the version, builds the dist image, refuses if
+# that image carries a credential, commits and tags. Source and binary cannot
 # drift because they land together.
 #
-# Two builds, on purpose:
+# Only the `dist` target is built, into server/public/firmware/. That is what
+# people download over usb and what every board pulls over the air, and it is
+# built against config.dist.h so it carries nobody's wifi, server or token.
 #
-#   firmware/bin/             dist. committed. this is what people download.
-#   server/firmware-release/  cyd. not committed. what OTA serves your own board.
-#
-# They differ because a board set up through the portal keeps its token in NVS,
-# while a board that was flashed with values compiled in has nothing in NVS to
-# fall back to. Sending it a dist image would leave it with no token and no way
-# to ask for one. Your board gets the build it expects, everyone else gets the
-# blank one.
+# One case this does not cover: a board you flashed yourself from `-e cyd` has
+# its credentials compiled in rather than stored in NVS, so handing it a dist
+# image leaves it with no token and no way to ask for one. If you have such a
+# board, reflash it through the setup portal once so its settings live in NVS,
+# and it can follow the same releases as everyone else.
 set -e
 
 VERSION="$1"
@@ -35,8 +34,17 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PIO="${PIO:-$HOME/.platformio/penv/bin/pio}"
 BIN="$ROOT/server/public/firmware"
 
-sed -i '' "s/#define FW_VERSION \".*\"/#define FW_VERSION \"$VERSION\"/" \
-    "$ROOT/firmware/src/main.cpp"
+# not `sed -i`: the in-place flag takes an argument on BSD and does not on GNU,
+# so any spelling of it breaks on one of the two platforms.
+python3 - "$ROOT/firmware/src/main.cpp" "$VERSION" <<'PY'
+import io, re, sys
+p, ver = sys.argv[1], sys.argv[2]
+s = io.open(p, encoding="utf-8").read()
+s, n = re.subn(r'#define FW_VERSION "[^"]*"', '#define FW_VERSION "%s"' % ver, s)
+if n != 1:
+    sys.exit("expected one FW_VERSION define in %s, found %d" % (p, n))
+io.open(p, "w", encoding="utf-8").write(s)
+PY
 
 cd "$ROOT/firmware"
 "$PIO" run -e dist
@@ -82,8 +90,13 @@ if bad:
 print('  secret scan: clean')
 PY
 
-SIZE=$(stat -f%z "$BIN/firmware.bin")
-SHA=$(shasum -a 256 "$BIN/firmware.bin" | cut -d' ' -f1)
+# `stat` and the sha tool are both spelled differently on macOS and linux.
+SIZE=$(wc -c < "$BIN/firmware.bin" | tr -d ' ')
+if command -v sha256sum >/dev/null 2>&1; then
+    SHA=$(sha256sum "$BIN/firmware.bin" | cut -d' ' -f1)
+else
+    SHA=$(shasum -a 256 "$BIN/firmware.bin" | cut -d' ' -f1)
+fi
 
 # The board this image is for. A device refuses an update whose manifest names a
 # different profile, so this is what stops one deployment bricking a board it was
@@ -107,9 +120,10 @@ cat > "$BIN/manifest.json" <<EOF
 EOF
 
 # ---------------------------------------------------------------------------
-# One release, one commit, one tag. The images in firmware/bin are what people
-# download, so a commit without them rebuilt is a commit whose source and binary
-# disagree, and nobody can tell by looking. Doing it here means they cannot drift.
+# One release, one commit, one tag. The images in server/public/firmware are what
+# people download, so a commit without them rebuilt is a commit whose source and
+# binary disagree, and nobody can tell by looking. Doing it here means they cannot
+# drift.
 # ---------------------------------------------------------------------------
 cd "$ROOT"
 git add -A
@@ -124,8 +138,21 @@ case "$N" in
 esac
 
 SUBJECT="${N}${SUF} commit: v$VERSION"
+
+# Wrap the body. Passing it through verbatim gives you one enormous line that
+# git will not fold, so it reads fine in a terminal that soft wraps and badly
+# everywhere else.
 if [ -n "$2" ]; then
-    printf '%s\n\n%s\n' "$SUBJECT" "$2" | git commit -q -F -
+    { printf '%s\n\n' "$SUBJECT"
+      printf '%s' "$2" | python3 -c "
+import sys, textwrap
+for para in sys.stdin.read().split('\n\n'):
+    para = ' '.join(para.split())
+    if para:
+        print(textwrap.fill(para, 78))
+        print()
+"
+    } | git commit -q -F -
 else
     git commit -q -m "$SUBJECT"
 fi

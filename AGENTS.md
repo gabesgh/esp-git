@@ -83,6 +83,7 @@ Fill in `.env.local`:
 | `WEBHOOK_SECRET` | no | only for push webhooks |
 | `UPSTASH_REDIS_REST_URL` / `_TOKEN` | no | optional, see "How the push flash actually fires" |
 | `ADAPTERS` | no | defaults to `github` |
+| `SHOW_BENCHMARK` | no | set to anything to add a "vs the median dev" note. rough scale marker, not a measurement |
 
 ```bash
 npm run dev
@@ -201,8 +202,8 @@ When it goes wrong it is almost always one of these, in order of how often:
 Building instead of using the prebuilt images is `pio run -e dist -t upload`.
 `-e dist` compiles against `config.dist.h`, which is blank. `-e cyd` compiles in
 whatever is in your own `config.h`, which is useful for your own board and must
-never be handed to anyone. `scripts/release.sh` builds both and refuses to
-publish the first if a credential from your `config.h` turns up inside it.
+never be handed to anyone. `scripts/release.sh` builds `dist` and refuses to
+publish it if a credential from your `config.h` turns up inside it.
 
 ### 5. Setup, on the device
 
@@ -308,7 +309,6 @@ practical way to soak-test view cycling or to check layout from a terminal.
 | `e` | cycle push effect: flash / confetti / ring |
 | `u` | check for a firmware update now |
 | `+` / `-` | brightness up / down |
-| `u` | check for a firmware update now |
 | `?` | list commands |
 
 `m` is worth calling out. It prints the bounding box of everything the firmware
@@ -398,6 +398,14 @@ design:
 - Private adapters (`server/lib/adapters/private/`) are gitignored so a fork
   cannot carry your data sources.
 
+**The settings page on the board has no password.** Anyone who can reach
+`http://esp-git.local` can change the wifi, the server url, the device token and
+the auto-update flag, and can start an update. That is a deliberate trade: the
+board has no keyboard, and a login you cannot reset without a cable is worse than
+no login on a device whose flash is already assumed readable. It does mean the
+boundary is your network. A guest on your wifi can repoint the board at their own
+server. If that matters, put it on a vlan.
+
 If you are adding a data source that touches something real, a production
 database or a billing API, put it in `private/` and keep it there.
 
@@ -425,9 +433,9 @@ the part that really wants durable storage.
 
 ## Releases are commits
 
-One release, one commit, one tag. `firmware/bin` holds what people download, so
-a commit that did not rebuild it is a commit whose source and binary disagree
-with nobody able to tell by looking.
+One release, one commit, one tag. `server/public/firmware/` holds what people
+download, so a commit that did not rebuild it is a commit whose source and binary
+disagree with nobody able to tell by looking.
 
 ```bash
 ./scripts/release.sh 1.0.3 "what changed and why"
@@ -435,15 +443,15 @@ git push origin main --tags
 cd server && npx vercel deploy --prod --yes
 ```
 
-That bumps the version, builds both images, refuses if the published one carries
-a credential from your `config.h`, then commits as `Nth commit: v1.0.3` and tags
+That bumps the version, builds the `dist` image, refuses if it carries a
+credential from your `config.h`, then commits as `Nth commit: v1.0.3` and tags
 it. Source and binary land together and cannot drift.
 
 - `main`: the released line, tagged `v1.0.x`, one commit per release
 
-Releases are cut from `prod`. `scripts/release.sh` questions any version outside
-`1.0.x`, because a version that sorts backwards leaves every device in the field
-convinced it is already current and there is no way to push a correction to them.
+`scripts/release.sh` questions any version outside `1.0.x`, because a version
+that sorts backwards leaves every device in the field convinced it is already
+current and there is no way to push a correction to them.
 
 Commit subjects are numbered by position in history:
 
@@ -496,9 +504,12 @@ Match the surrounding code. Specifically:
   it, or touch that never registers; not an obvious error.
 - `XPT2046_Touchscreen` in the PlatformIO registry is a 2019 alpha with no usable
   version tag. Pull it from the GitHub URL instead, as `platformio.ini` does.
-- **Partition matters.** The default 1.2MB app partition is too tight once you
-  add TLS + TFT_eSPI + ArduinoJson. `huge_app.csv` gives 3MB; the build lands
-  around 31%.
+- **Partition matters, and the obvious answer is the wrong one.** The default
+  1.2MB app partition is too tight once you add TLS + TFT_eSPI + ArduinoJson.
+  `huge_app.csv` is the usual fix and it is the one to avoid here: it buys 3MB
+  by having a single app slot, which rules out OTA entirely. `min_spiffs.csv`
+  gives two 1.9MB slots and the build sits around 1MB, so it fits with room to
+  spare and can still update itself. See "Updating over the internet".
 - GitHub's contribution calendar is **GraphQL only**. There is no REST endpoint
   for it, and it always requires auth.
 - `restrictedContributionsCount` is how many of your contributions are private.
