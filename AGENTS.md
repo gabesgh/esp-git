@@ -447,7 +447,8 @@ That bumps the version, builds the `dist` image, refuses if it carries a
 credential from your `config.h`, then commits as `Nth commit: v1.0.3` and tags
 it. Source and binary land together and cannot drift.
 
-- `main`: the released line, tagged `v1.0.x`, one commit per release
+- `main`: the released line. A release is one commit, tagged `v1.0.x`. Work
+  that is not a release, tooling and CI, lands between them untagged.
 
 `scripts/release.sh` questions any version outside `1.0.x`, because a version
 that sorts backwards leaves every device in the field convinced it is already

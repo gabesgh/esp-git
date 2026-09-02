@@ -1,0 +1,102 @@
+# Builds the repo the way a stranger gets it: fresh clone, nothing cached from
+# anyone's laptop. Every problem found in the v1.0.1 audit was drift of exactly
+# that kind, working locally and nowhere else.
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+
+      # `npm ci` rather than `npm install`: it installs the lockfile exactly and
+      # fails if package.json has drifted from it, which is the whole point here.
+      - run: npm ci
+        working-directory: server
+
+      - run: npm run typecheck
+        working-directory: server
+
+      # A warning here is not cosmetic. The dynamic adapter import warned on every
+      # clean build for two releases because nobody built from a clean tree.
+      - name: build, and fail on any warning
+        working-directory: server
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee "$RUNNER_TEMP/build.log"
+          if grep -qiE 'warn|module not found' "$RUNNER_TEMP/build.log"; then
+            echo "::error::build emitted a warning"
+            exit 1
+          fi
+
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            firmware/.pio
+          key: pio-${{ hashFiles('firmware/platformio.ini') }}
+
+      - run: pip install platformio
+
+      # `dist` is the target that ships. If a board-profile PR breaks the build,
+      # this is where it shows up rather than in someone's release.
+      - run: pio run -e dist
+        working-directory: firmware
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The README link to the prebuilt images pointed at a directory that had
+      # been renamed away, so the first thing anyone clicked was a 404.
+      - name: relative links resolve
+        run: |
+          fail=0
+          for f in README.md AGENTS.md docs/*.md; do
+            [ -e "$f" ] || continue
+            for l in $(grep -ohE '\]\([^)h][^)]*\)' "$f" | sed 's/](//;s/)$//;s/#.*//' | sort -u); do
+              [ -z "$l" ] && continue
+              if [ ! -e "$l" ]; then
+                echo "::error file=$f::broken link: $l"
+                fail=1
+              fi
+            done
+          done
+          exit $fail
+
+      - name: shell scripts parse
+        run: |
+          bash -n scripts/release.sh
+          bash -n scripts/install-hook.sh
+          sh   -n hooks/pre-push
+
+      # The committed image is what people flash. If it stops matching the
+      # manifest they check it against, the manifest is worse than useless.
+      - name: firmware manifest matches the committed image
+        run: |
+          want=$(python3 -c "import json;print(json.load(open('server/public/firmware/manifest.json'))['sha256'])")
+          got=$(sha256sum server/public/firmware/firmware.bin | cut -d' ' -f1)
+          echo "manifest $want"
+          echo "actual   $got"
+          [ "$want" = "$got" ]
