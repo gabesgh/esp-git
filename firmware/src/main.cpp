@@ -22,7 +22,7 @@
 #include "provision.h"
 
 // bumped by scripts/release.sh; the device compares this against the manifest
-#define FW_VERSION "1.0.1"
+#define FW_VERSION "1.0.2"
 
 TFT_eSPI tft;
 SPIClass touchBus(VSPI);
