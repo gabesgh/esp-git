@@ -205,6 +205,7 @@ something out of the repo.
 | Chip | ESP32-D0WD, 4 MB flash, no PSRAM |
 | Display | ILI9341 240×320 via TFT_eSPI |
 | Touch | XPT2046 resistive. Tap right/left to change screen, drag down to dim |
+| Where to buy | ELEGOO ESP32 2.8" touch display: [Amazon.ca](https://www.amazon.ca/ELEGOO-Display-Acrylic-Protector-Projects/dp/B0FJQJZYXG) for Canada, [Amazon.com](https://www.amazon.com/ELEGOO-2-8-Inch-Displays-240x320-ILI9341/dp/B0FJQ6RK39) for the US |
 
 Other boards need a new pin map in `firmware/include/config.example.h`. PRs
 adding profiles are welcome.
